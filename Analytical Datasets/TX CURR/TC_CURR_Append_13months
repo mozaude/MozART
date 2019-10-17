@@ -1,0 +1,237 @@
+SELECT *,
+
+CASE WHEN [Status]='Active' THEN 'Active'
+	WHEN [Status]= null THEN null 
+	ELSE 'Not Active'
+	END AS [Active_Patient]
+
+INTO [Sandbox].[dbo].[TX_CURR_JUN18_JUN19_12mo_Final]
+
+FROM
+(
+SELECT *,
+CAST(Evaluation_Date as DATE) Evaluation_Date_format2
+
+,CASE	WHEN datediff(dd,[second_last_sched_encounter],[last_actual_encounter])>30 /*patient was LTFU because they came to last encounter more than 30 days after it was scheduled*/ 
+			AND datediff(dd,[second_last_actual_encounter],[last_actual_encounter])<=60 THEN 'Returned_care_31_60'
+		WHEN datediff(dd,[second_last_sched_encounter],[last_actual_encounter])>30 /*patient was LTFU because they came to last encounter more than 30 days after it was scheduled*/ 
+			AND datediff(dd,[second_last_actual_encounter],[last_actual_encounter])>60
+			AND datediff(dd,[second_last_actual_encounter],[last_actual_encounter])<=180 THEN 'Returned_care_60_180'
+		WHEN datediff(dd,[second_last_sched_encounter],[last_actual_encounter])>30 /*patient was LTFU because they came to last encounter more than 30 days after it was scheduled*/ 
+			AND datediff(dd,[second_last_actual_encounter],[last_actual_encounter])>180 THEN 'Returned_care_GT180'
+		END AS Returning_time_categ
+
+,CASE	WHEN datediff(dd,[second_last_sched_encounter],[last_actual_encounter])<=30 /*patient was Active because they came to last encounter more than 30 days after it was scheduled*/ 
+			AND datediff(dd,[second_last_sched_encounter],[last_actual_encounter])>=7 THEN 'Retained_7_30_late'
+		WHEN datediff(dd,[second_last_sched_encounter],[last_actual_encounter])<=30 /*patient was Active because they came to last encounter more than 30 days after it was scheduled*/ 
+			AND datediff(dd,[second_last_sched_encounter],[last_actual_encounter])>=1
+			AND datediff(dd,[second_last_sched_encounter],[last_actual_encounter])<=6 THEN 'Retained_1_6_late'
+		WHEN datediff(dd,[second_last_sched_encounter],[last_actual_encounter])<=30 /*patient was Active because they came to last encounter more than 30 days after it was scheduled*/ 
+			AND datediff(dd,[second_last_sched_encounter],[last_actual_encounter])=0 THEN 'Retained_0_late'
+		END AS Retained_time_categ
+
+
+,CASE WHEN [days_sched_encounter]>30 AND [datasaidatarv]<[Evaluation_Date] AND [Revised_Codestado] is not null THEN [Revised_Codestado] /*left before and have confirmed status*/
+	WHEN [days_sched_encounter]>30 AND  [Revised_Codestado] is null THEN 'LTFU'															/*>30 days are missing, no status confirmed*/
+/*	WHEN [days_sched_encounter]>30 AND [datasaidatarv]<[Evaluation_Date] AND [Revised_Codestado] is null THEN 'LTFU'					/*>30 days are missing, no status confirmed*/---can summarize all next three in one without datasaida.
+	WHEN [days_sched_encounter]>30 AND [datasaidatarv] is null AND [Revised_Codestado] is null THEN 'LTFU'								/*>30 days are missing, no status confirmed*/
+	WHEN [[days_sched_encounter]]>30 AND [datasaidatarv] is not null AND [Revised_Codestado] is null THEN 'LTFU'							/*>30 days are missing, no status confirmed--corrected codestado*/*/
+	WHEN [days_sched_encounter]<=30 AND [Revised_Codestado] is not null THEN [Revised_Codestado]										/*<30 days missing but confirmed status, left before*/
+	WHEN [days_sched_encounter]<=30 AND [Revised_Codestado] is null THEN 'Active'														/*<30 days, no status confirmed*/
+	END AS [Status]
+
+
+FROM
+(
+SELECT *, CASE WHEN [Revised_dataproximaconsult]>[Revised_dataproxima_tarv] THEN DATEDIFF(dd, [Revised_dataproximaconsult], Evaluation_Date)
+		WHEN [Revised_dataproximaconsult]<[Revised_dataproxima_tarv] THEN DATEDIFF(dd,[Revised_dataproxima_tarv], Evaluation_Date)
+		WHEN [Revised_dataproximaconsult] is not null AND [Revised_dataproxima_tarv] is null THEN DATEDIFF(dd, [Revised_dataproximaconsult], Evaluation_Date)
+		WHEN [Revised_dataproximaconsult] is null AND [Revised_dataproxima_tarv] is not null THEN DATEDIFF(dd,[Revised_dataproxima_tarv], Evaluation_Date)
+		WHEN [Revised_dataproximaconsult]=[Revised_dataproxima_tarv] THEN DATEDIFF(dd,[Revised_dataproxima_tarv], Evaluation_Date)
+		ELSE NULL
+	END AS [days_sched_encounter]
+
+, CASE WHEN [Revised_dataproximaconsult]>[Revised_dataproxima_tarv] THEN [Revised_dataproximaconsult]
+		WHEN [Revised_dataproximaconsult]<[Revised_dataproxima_tarv] THEN [Revised_dataproxima_tarv]
+		WHEN [Revised_dataproximaconsult] is not null AND [Revised_dataproxima_tarv] is null THEN [Revised_dataproximaconsult]
+		WHEN [Revised_dataproximaconsult] is null AND [Revised_dataproxima_tarv] is not null THEN [Revised_dataproxima_tarv]
+		WHEN [Revised_dataproximaconsult]=[Revised_dataproxima_tarv] THEN [Revised_dataproxima_tarv]
+		ELSE null
+	END AS [last_scheduled_encounter]
+
+
+, CASE WHEN [Revised_second_dataproximaconsult]>[Revised_second_dataproxima_tarv] THEN [Revised_dataproximaconsult]
+		WHEN [Revised_second_dataproximaconsult]<[Revised_second_dataproxima_tarv] THEN [Revised_second_dataproxima_tarv]
+		WHEN [Revised_second_dataproximaconsult] is not null AND [Revised_second_dataproxima_tarv] is null THEN [Revised_dataproximaconsult]
+		WHEN [Revised_second_dataproximaconsult] is null AND [Revised_second_dataproxima_tarv] is not null THEN [Revised_second_dataproxima_tarv]
+		WHEN [Revised_second_dataproximaconsult]=[Revised_second_dataproxima_tarv] THEN [Revised_second_dataproxima_tarv]
+		ELSE null
+	END AS [second_last_sched_encounter]
+
+
+, CASE WHEN [Max_dataseguimento]>[Max_datatarv] THEN DATEDIFF(dd, [Max_dataseguimento], Evaluation_Date)
+		WHEN [Max_dataseguimento]<[Max_datatarv] THEN DATEDIFF(dd,[Max_datatarv], Evaluation_Date)
+		WHEN [Max_dataseguimento] is not null AND [Max_datatarv] is null THEN DATEDIFF(dd, [Max_dataseguimento], Evaluation_Date)
+		WHEN [Max_dataseguimento] is null AND [Max_datatarv] is not null THEN DATEDIFF(dd, [Max_datatarv], Evaluation_Date)
+		WHEN [Max_dataseguimento]=[Max_datatarv] THEN DATEDIFF(dd,[Max_datatarv], Evaluation_Date)
+		ELSE NULL
+	END AS [days_actual_encounter]
+
+, CASE WHEN [Max_dataseguimento]>[Max_datatarv] THEN [Max_dataseguimento]
+		WHEN [Max_dataseguimento]<[Max_datatarv] THEN [Max_datatarv]
+		WHEN [Max_dataseguimento] is not null AND [Max_datatarv] is null THEN [Max_dataseguimento]
+		WHEN [Max_dataseguimento] is null AND [Max_datatarv] is not null THEN [Max_datatarv]
+		WHEN [Max_dataseguimento]=[Max_datatarv] THEN [Max_datatarv]
+		ELSE null
+	END AS [last_actual_encounter]
+
+, CASE WHEN [dataseguimento_second]>[datatarv_second] THEN [dataseguimento_second]
+		WHEN [dataseguimento_second]<[datatarv_second] THEN [datatarv_second]
+		WHEN [dataseguimento_second] is not null AND [datatarv_second] is null THEN [dataseguimento_second]
+		WHEN [dataseguimento_second] is null AND [datatarv_second] is not null THEN [datatarv_second]
+		WHEN [dataseguimento_second]=[datatarv_second] THEN [datatarv_second]
+		ELSE null
+	END AS [second_last_actual_encounter]
+
+
+, CASE WHEN [datasaidatarv]>[Evaluation_Date] THEN NULL
+	WHEN [datasaidatarv]<[Revised_dataproximaconsult] OR [datasaidatarv]<[Revised_dataproxima_tarv] THEN NULL
+	ELSE [Codestado_English]
+END AS [Revised_Codestado]
+
+FROM
+(
+SELECT *,
+
+CASE WHEN datainiciotarv between DATEADD(dd,-31, Evaluation_Date) AND DATEADD(dd,-1,Evaluation_Date)	THEN 'New Patient'
+ELSE 'Returning Patient'
+END 
+AS [NewPatient]
+,
+CASE WHEN (datainiciotarv is not null AND Max_datatarv is not null) OR (dataabertura is not null and Max_datatarv is not null) THEN 'Initiated'   /*patient really only initiated if they pick up ARV*/
+ELSE 'Not Initiated' 
+END AS [confirmed_initiated]
+,
+CASE WHEN Max_dataproxima_tarv is not null AND Max_datatarv<Max_dataproxima_tarv AND DayswithARV<180 THEN  DATEADD(dd,DayswithARV,Max_datatarv)
+	 WHEN Max_dataproxima_tarv is not null AND Max_datatarv<Max_dataproxima_tarv AND DayswithARV>=180 THEN  DATEADD(dd,100,Max_datatarv)
+	 WHEN Max_dataproxima_tarv is not null AND Max_datatarv>Max_dataproxima_tarv THEN  DATEADD(dd,30,Max_datatarv)
+	 WHEN Max_dataproxima_tarv is null AND MAX_datatarv is not null THEN DATEADD(dd,30,Max_datatarv)
+	 ELSE null
+END AS [Revised_dataproxima_tarv]
+
+,
+CASE WHEN Max_dataproximaconsult is not null AND Max_dataseguimento<Max_dataproximaconsult AND DATEDIFF(dd, Max_dataseguimento,Max_dataproximaconsult)<180 THEN  Max_dataproximaconsult
+	 WHEN Max_dataproximaconsult is not null AND Max_dataseguimento<Max_dataproximaconsult AND DATEDIFF(dd, Max_dataseguimento,Max_dataproximaconsult)>=180 THEN  DATEADD(dd,100,Max_dataseguimento)
+	 WHEN Max_dataproximaconsult is not null AND Max_dataseguimento>Max_dataproximaconsult THEN  DATEADD(dd,30,Max_dataseguimento)
+	 WHEN Max_dataproximaconsult is null THEN DATEADD(dd,30,Max_dataseguimento)
+	 ELSE null
+END AS [Revised_dataproximaconsult]
+
+,
+CASE WHEN proximatarv_second is not null AND datatarv_second<proximatarv_second AND Second_DayswithARV<180 THEN  DATEADD(dd,Second_DayswithARV,datatarv_second)
+	 WHEN proximatarv_second is not null AND datatarv_second<proximatarv_second AND Second_DayswithARV>=180 THEN  DATEADD(dd,100,datatarv_second)
+	 WHEN proximatarv_second is not null AND datatarv_second>proximatarv_second THEN  DATEADD(dd,30,datatarv_second)
+	 WHEN proximatarv_second is null AND datatarv_second is not null THEN DATEADD(dd,30,datatarv_second)
+	 ELSE null
+END AS [Revised_second_dataproxima_tarv]
+
+,
+CASE WHEN proximaconsult_second is not null AND dataseguimento_second<proximaconsult_second AND DATEDIFF(dd, dataseguimento_second,proximaconsult_second)<180 THEN  proximaconsult_second
+	 WHEN proximaconsult_second is not null AND dataseguimento_second<proximaconsult_second AND DATEDIFF(dd, dataseguimento_second,proximaconsult_second)>=180 THEN  DATEADD(dd,100,dataseguimento_second)
+	 WHEN proximaconsult_second is not null AND dataseguimento_second>proximaconsult_second THEN  DATEADD(dd,30,dataseguimento_second)
+	 WHEN proximaconsult_second is null THEN DATEADD(dd,30,dataseguimento_second)
+	 ELSE null
+END AS [Revised_second_dataproximaconsult]
+
+
+,
+ REPLACE(REPLACE(REPLACE(REPLACE(codestado
+			,'ABANDONO','Abandoned')
+			,'OBITOU', 'Dead')
+			,'SUSPENDER TRATAMENTO', 'Suspended')
+			,'TRANSFERIDO PARA','Transferred Out') [Codestado_English]
+
+FROM
+(
+	SELECT *, CASE WHEN nid IS NOT NULL THEN 'June 2018' ELSE NULL END AS Period_Month  
+	FROM Sandbox.dbo.TX_CURR_JUN18
+	WHERE datainiciotarv<=Evaluation_Date /*AND (Max_datatarv<Evaluation_Date OR Max_datatarv is null)  conditions 2 and 3 are actually taken into account by [confirm_initiated] variable
+	AND (Max_dataseguimento<Evaluation_Date OR Max_dataseguimento is null)*/
+
+	UNION ALL
+
+	SELECT * , CASE WHEN nid IS NOT NULL THEN 'July 2018' ELSE NULL END AS Period_Month
+	FROM Sandbox.dbo.TX_CURR_JUL18
+	WHERE datainiciotarv<=Evaluation_Date
+	
+	UNION ALL
+
+	SELECT *, CASE WHEN nid IS NOT NULL THEN 'August 2018' ELSE NULL END AS Period_Month
+	FROM Sandbox.dbo.TX_CURR_AUG18
+	WHERE datainiciotarv<=Evaluation_Date
+
+
+	UNION ALL
+
+	SELECT * , CASE WHEN nid IS NOT NULL THEN 'September 2018' ELSE NULL END AS Period_Month
+	FROM Sandbox.dbo.TX_CURR_SEP18
+	WHERE datainiciotarv<=Evaluation_Date
+
+	UNION ALL
+
+	SELECT * , CASE WHEN nid IS NOT NULL THEN 'October 2018' ELSE NULL END AS Period_Month
+	FROM Sandbox.dbo.TX_CURR_OCT18
+	WHERE datainiciotarv<=Evaluation_Date
+	
+	UNION ALL
+
+	SELECT * , CASE WHEN nid IS NOT NULL THEN 'November 2018' ELSE NULL END AS Period_Month
+	FROM Sandbox.dbo.TX_CURR_NOV18
+	WHERE datainiciotarv<=Evaluation_Date
+
+	UNION ALL
+
+	SELECT * , CASE WHEN nid IS NOT NULL THEN 'December 2018' ELSE NULL END AS Period_Month
+	FROM Sandbox.dbo.TX_CURR_DEC18
+	WHERE datainiciotarv<=Evaluation_Date
+
+	UNION ALL
+
+	SELECT * , CASE WHEN nid IS NOT NULL THEN 'January 2019' ELSE NULL END AS Period_Month
+	FROM Sandbox.dbo.TX_CURR_JAN19
+	WHERE datainiciotarv<=Evaluation_Date
+
+	UNION ALL
+
+	SELECT *, CASE WHEN nid IS NOT NULL THEN 'February 2019' ELSE NULL END AS Period_Month
+	FROM Sandbox.dbo.TX_CURR_FEB19
+	WHERE datainiciotarv<=Evaluation_Date
+
+	UNION ALL
+
+	SELECT * , CASE WHEN nid IS NOT NULL THEN 'March 2019' ELSE NULL END AS Period_Month
+	FROM Sandbox.dbo.TX_CURR_MAR19
+	WHERE datainiciotarv<=Evaluation_Date
+
+	UNION ALL
+
+	SELECT * , CASE WHEN nid IS NOT NULL THEN 'April 2019' ELSE NULL END AS Period_Month
+	FROM Sandbox.dbo.TX_CURR_APR19
+	WHERE datainiciotarv<=Evaluation_Date
+
+	UNION ALL
+
+	SELECT * , CASE WHEN nid IS NOT NULL THEN 'May 2019' ELSE NULL END AS Period_Month     /*check if there are more null nids in MAY 2019*/
+	FROM Sandbox.dbo.TX_CURR_MAY19
+	WHERE datainiciotarv<=Evaluation_Date
+
+	UNION ALL
+
+	SELECT * , CASE WHEN nid IS NOT NULL THEN 'June 2019' ELSE NULL END AS Period_Month
+	FROM Sandbox.dbo.TX_CURR_JUN19
+	WHERE datainiciotarv<=Evaluation_Date
+
+) master
+) master2
+WHERE [confirmed_initiated]='Initiated') master3
+) master4
